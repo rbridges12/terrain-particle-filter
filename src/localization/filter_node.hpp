@@ -23,15 +23,21 @@ private:
     ros::Publisher mPosePub, mTerrainPub, mNeighborhoodPub, mNormalPub, mNormalsPub, mParticlesPub;
     ros::Subscriber mGroundTruthSub, mVelCmdSub, mImuSub;
     TerrainParticleFilter mFilter;
-    std::chrono::time_point<std::chrono::system_clock> mLastTime;
+    std::chrono::time_point<std::chrono::system_clock> mLastPredictionTime;
+    std::chrono::time_point<std::chrono::system_clock> mLastUpdateTime;
+    double mPredictionRate = 2;
+    double mUpdateRate = 0.1;
     bool mInitialized = false;
     int mNumParticles;
     std::default_random_engine mRNG;
 
     void ground_truth_callback(const nav_msgs::Odometry& msg) {
         auto now = std::chrono::system_clock::now();
-        double dt = std::chrono::duration<double>(now - mLastTime).count();
-        mLastTime = now;
+        double dt = std::chrono::duration<double>(now - mLastPredictionTime).count();
+        if (dt < 1.0 / mPredictionRate) return;
+        mLastPredictionTime = now;
+        std::cout << "Predicting, dt = " << dt << std::endl;
+
         if (!mInitialized) {
             std::cout << "Initializing filter" << std::endl;
             tf2::Quaternion q;
@@ -51,7 +57,7 @@ private:
         std::normal_distribution<double> xDist(0, 0.1);
         std::normal_distribution<double> thetaDist(0, 0.1);
         Eigen::Vector3d velCmd(velocityBody.x(), velocityBody.y(), msg.twist.twist.angular.z);
-        std::cout << "Vel cmd: " << velCmd.transpose() << std::endl;
+        // std::cout << "Vel cmd: " << velCmd.transpose() << std::endl;
         Eigen::Vector3d noise(xDist(mRNG), 0, thetaDist(mRNG));
         mFilter.predict(velCmd, dt);
     }
@@ -67,10 +73,12 @@ private:
 
     void imu_callback(const sensor_msgs::Imu& msg) {
         if (!mInitialized) return;
-        // std::cout << "Updating" << std::endl;
-        // auto now = std::chrono::system_clock::now();
-        // double dt = std::chrono::duration<double>(now - mLastTime).count();
-        // mLastTime = now;
+        auto now = std::chrono::system_clock::now();
+        double dt = std::chrono::duration<double>(now - mLastUpdateTime).count();
+        if (dt < 1.0 / mUpdateRate) return;
+
+        mLastUpdateTime = now;
+        std::cout << "Updating, time since last update: " << dt << std::endl;
         Eigen::Quaterniond orientation(msg.orientation.w, msg.orientation.x, msg.orientation.y, msg.orientation.z);
         Eigen::Vector3d gyro(msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z);
         Eigen::Vector3d accel(msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z);
@@ -263,7 +271,7 @@ public:
         mGroundTruthSub = mNh.subscribe("ground_truth", 1, &FilterNode::ground_truth_callback, this);
         mVelCmdSub = mNh.subscribe("cmd_vel", 1, &FilterNode::cmd_vel_callback, this);
         mImuSub = mNh.subscribe("imu/imu_only", 1, &FilterNode::imu_callback, this);
-        mLastTime = std::chrono::system_clock::now();
+        mLastPredictionTime = std::chrono::system_clock::now();
     }
     
     void spin() {
