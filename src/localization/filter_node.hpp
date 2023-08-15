@@ -1,19 +1,19 @@
+#include <chrono>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/Twist.h>
+#include <iostream>
+#include <nav_msgs/Odometry.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl_ros/point_cloud.h>
 #include <ros/init.h>
 #include <ros/ros.h>
+#include <sensor_msgs/Imu.h>
 #include <terrain_particle_filter.hpp>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/PoseStamped.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
-#include <nav_msgs/Odometry.h>
-#include <sensor_msgs/Imu.h>
-#include <tf2/LinearMath/Matrix3x3.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
-#include <tf2/LinearMath/Quaternion.h>
-#include <pcl_ros/point_cloud.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <chrono>
-#include <iostream>
 
 using PointCloud = pcl::PointCloud<pcl::PointXYZ>;
 
@@ -25,19 +25,14 @@ private:
     TerrainParticleFilter mFilter;
     std::chrono::time_point<std::chrono::system_clock> mLastPredictionTime;
     std::chrono::time_point<std::chrono::system_clock> mLastUpdateTime;
-    double mPredictionRate = 2;
-    double mUpdateRate = 0.1;
+    double mPredictionRate = 30;
+    double mUpdateRate = 10;
     bool mInitialized = false;
     int mNumParticles;
     std::default_random_engine mRNG;
 
     void ground_truth_callback(const nav_msgs::Odometry& msg) {
         auto now = std::chrono::system_clock::now();
-        double dt = std::chrono::duration<double>(now - mLastPredictionTime).count();
-        if (dt < 1.0 / mPredictionRate) return;
-        mLastPredictionTime = now;
-        std::cout << "Predicting, dt = " << dt << std::endl;
-
         if (!mInitialized) {
             std::cout << "Initializing filter" << std::endl;
             tf2::Quaternion q;
@@ -51,14 +46,25 @@ private:
             mInitialized = true;
         }
 
-        Eigen::Quaterniond orientation(msg.pose.pose.orientation.w, msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z);
-        Eigen::Vector3d velocityWorld(msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.linear.z);
+        double dt = std::chrono::duration<double>(now - mLastPredictionTime).count();
+        if (dt < 1.0 / mPredictionRate) return;
+        mLastPredictionTime = now;
+        std::cout << "Predicting, dt = " << dt << std::endl;
+
+        Eigen::Quaterniond orientation(msg.pose.pose.orientation.w, msg.pose.pose.orientation.x,
+                                       msg.pose.pose.orientation.y, msg.pose.pose.orientation.z);
+        Eigen::Vector3d velocityWorld(msg.twist.twist.linear.x, msg.twist.twist.linear.y,
+                                      msg.twist.twist.linear.z);
         Eigen::Vector3d velocityBody = orientation.inverse() * velocityWorld;
         std::normal_distribution<double> xDist(0, 0.1);
         std::normal_distribution<double> thetaDist(0, 0.1);
         Eigen::Vector3d velCmd(velocityBody.x(), velocityBody.y(), msg.twist.twist.angular.z);
         // std::cout << "Vel cmd: " << velCmd.transpose() << std::endl;
         Eigen::Vector3d noise(xDist(mRNG), 0, thetaDist(mRNG));
+        // auto t1 = std::chrono::high_resolution_clock::now();
+        // auto t2 = std::chrono::high_resolution_clock::now();
+        // double dt1 = std::chrono::duration<double>(t2 - t1).count();
+        // std::cout << "prediction prep time: " << dt1 << "s" << std::endl;
         mFilter.predict(velCmd, dt);
     }
 
@@ -79,9 +85,12 @@ private:
 
         mLastUpdateTime = now;
         std::cout << "Updating, time since last update: " << dt << std::endl;
-        Eigen::Quaterniond orientation(msg.orientation.w, msg.orientation.x, msg.orientation.y, msg.orientation.z);
-        Eigen::Vector3d gyro(msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z);
-        Eigen::Vector3d accel(msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z);
+        Eigen::Quaterniond orientation(msg.orientation.w, msg.orientation.x, msg.orientation.y,
+                                       msg.orientation.z);
+        Eigen::Vector3d gyro(msg.angular_velocity.x, msg.angular_velocity.y,
+                             msg.angular_velocity.z);
+        Eigen::Vector3d accel(msg.linear_acceleration.x, msg.linear_acceleration.y,
+                              msg.linear_acceleration.z);
         // mFilter.predict(orientation, accel, gyro, dt);
         mFilter.update(orientation);
     }
@@ -142,12 +151,13 @@ private:
         auto grid = mFilter.get_terrain_grid();
         visualization_msgs::MarkerArray msg;
         std::vector<visualization_msgs::Marker> markers;
-        for (size_t i = 0; i < grid.rows(); i+=10) {
-            for (size_t j = 0; j < grid.cols(); j+=10) {
+        for (size_t i = 0; i < grid.rows(); i += 10) {
+            for (size_t j = 0; j < grid.cols(); j += 10) {
                 Eigen::Vector2i idx = Eigen::Vector2i(i, j);
                 Eigen::Vector2d position = mFilter.idx_to_position(idx);
                 double height = grid(i, j);
-                auto normal = mFilter.get_surface_normal(manif::SE2d(position.x(), position.y(), 0));
+                auto normal =
+                        mFilter.get_surface_normal(manif::SE2d(position.x(), position.y(), 0));
                 if (!normal) continue;
                 visualization_msgs::Marker marker;
                 marker.header.stamp = ros::Time();
@@ -183,7 +193,7 @@ private:
         auto pose = mFilter.get_pose_estimate();
         auto normal = mFilter.get_surface_normal(pose);
         if (!normal) return;
-        
+
         // convert direction vector to quaternion
         Eigen::Vector3d basis2 = normal->cross(Eigen::Vector3d::UnitZ());
         Eigen::Vector3d basis3 = normal->cross(basis2);
@@ -254,7 +264,10 @@ private:
     }
 
 public:
-    FilterNode() : mFilter("/home/riley/catkin_ws/src/mrover/src/localization/waves.tif", 0.01, 0.03, Eigen::Vector2d(1, 1)) {
+    FilterNode()
+        : mFilter("/home/riley/catkin_ws/src/terrain_pf/src/localization/mars.tif", 0.01, 0.03,
+        // : mFilter("/home/riley/catkin_ws/src/terrain_pf/src/localization/waves.tif", 0.01, 0.03,
+                  Eigen::Vector2d(1, 1)) {
         mNumParticles = 1000;
         // Eigen::Vector2i idx(3,1);
         // Eigen::Vector2d pos = mFilter.idx_to_position(idx);
@@ -268,22 +281,23 @@ public:
         mNormalPub = mNh.advertise<visualization_msgs::Marker>("normal_vector", 1);
         mNormalsPub = mNh.advertise<visualization_msgs::MarkerArray>("normals", 1);
         mParticlesPub = mNh.advertise<visualization_msgs::MarkerArray>("particles", 1);
-        mGroundTruthSub = mNh.subscribe("ground_truth", 1, &FilterNode::ground_truth_callback, this);
+        mGroundTruthSub =
+                mNh.subscribe("ground_truth", 1, &FilterNode::ground_truth_callback, this);
         mVelCmdSub = mNh.subscribe("cmd_vel", 1, &FilterNode::cmd_vel_callback, this);
         mImuSub = mNh.subscribe("imu/imu_only", 1, &FilterNode::imu_callback, this);
         mLastPredictionTime = std::chrono::system_clock::now();
     }
-    
+
     void spin() {
-        ros::Rate rate(10);
+        ros::Rate rate(30);
+        publish_terrain();
         while (ros::ok()) {
             // std::cout << "Spinning" << std::endl;
             ros::spinOnce();
             // publish_normals();
-            publish_normal();
+            // publish_normal();
             publish_particles();
             publish_pose();
-            publish_terrain();
             rate.sleep();
         }
     }

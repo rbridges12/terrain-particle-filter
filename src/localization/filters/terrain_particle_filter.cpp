@@ -9,11 +9,16 @@
 #include <pcl/features/normal_3d.h>
 
 // TODO: make new variables arguments to the constructor
-TerrainParticleFilter::TerrainParticleFilter(const std::string& terrainFilename, double sigmaX, double sigmaTheta, const Eigen::Vector2d& footprint) : mTerrainMap(load_terrain_map(terrainFilename)), mXDist(0, sigmaX), mThetaDist(0, sigmaTheta), mResamplingXDist(0, 0.01), mResamplingThetaDist(0, 0.01), mFootprint(footprint), mVelocity(0, 0, 0), mRandomInjectionRate(0.2) {
+TerrainParticleFilter::TerrainParticleFilter(const std::string& terrainFilename, double sigmaX,
+                                             double sigmaTheta, const Eigen::Vector2d& footprint)
+    : mTerrainMap(load_terrain_map(terrainFilename)), mXDist(0, sigmaX), mThetaDist(0, sigmaTheta),
+      mResamplingXDist(0, 0.03), mResamplingThetaDist(0, 0.01), mFootprint(footprint),
+      mVelocity(0, 0, 0), mRandomInjectionRate(0.1) {
     assert(footprint.x() > 0 && footprint.y() > 0);
     assert(sigmaX >= 0 && sigmaTheta >= 0);
     Eigen::Vector2d minCorner = idx_to_position(Eigen::Vector2i(0, 0));
-    Eigen::Vector2d maxCorner = idx_to_position(Eigen::Vector2i(mTerrainMap.grid.cols() - 1, mTerrainMap.grid.rows() - 1));
+    Eigen::Vector2d maxCorner = idx_to_position(
+            Eigen::Vector2i(mTerrainMap.grid.cols() - 1, mTerrainMap.grid.rows() - 1));
     mXDistUniform = std::uniform_real_distribution<>(minCorner.x(), maxCorner.x());
     mYDistUniform = std::uniform_real_distribution<>(minCorner.y(), maxCorner.y());
     mThetaDistUniform = std::uniform_real_distribution<>(-M_PI, M_PI);
@@ -50,10 +55,12 @@ Eigen::Vector2d TerrainParticleFilter::idx_to_position(const Eigen::Vector2i& id
     std::swap(temp_idx.x(), temp_idx.y());
 
     // offset by half a cell to put point at center of the cell
-    return (temp_idx.cast<double>().array() + 0.5).matrix() * mTerrainMap.metersPerCell - mTerrainMap.origin;
+    return (temp_idx.cast<double>().array() + 0.5).matrix() * mTerrainMap.metersPerCell -
+           mTerrainMap.origin;
 }
 
-Eigen::Vector2i TerrainParticleFilter::position_to_idx(const Eigen::Vector2d& position, bool clampBounds) const {
+Eigen::Vector2i TerrainParticleFilter::position_to_idx(const Eigen::Vector2d& position,
+                                                       bool clampBounds) const {
     Eigen::Vector2i idx = ((position + mTerrainMap.origin) / mTerrainMap.metersPerCell).cast<int>();
     std::swap(idx.x(), idx.y());
     if (clampBounds) {
@@ -72,7 +79,8 @@ void TerrainParticleFilter::init_particles(size_t numParticles) {
     // TODO: make these distributions member variables
     mParticles.resize(numParticles);
     for (size_t i = 0; i < numParticles; i++) {
-        mParticles[i] = manif::SE2d(mXDistUniform(mRNG), mYDistUniform(mRNG), mThetaDistUniform(mRNG));
+        mParticles[i] =
+                manif::SE2d(mXDistUniform(mRNG), mYDistUniform(mRNG), mThetaDistUniform(mRNG));
         // mParticles[i] = manif::SE2d::Random();
     }
 }
@@ -85,12 +93,7 @@ std::optional<Eigen::Vector3d> TerrainParticleFilter::get_surface_normal(manif::
     // TODO: index with seq if eigen 3.4 is available
     Eigen::MatrixXd neighborhood = mTerrainMap.grid.block(minCorner.x(), minCorner.y(),
                                                           footprintCells.x(), footprintCells.y());
-    if (neighborhood.rows() == 0 || neighborhood.cols() == 0) {
-        // std::stringstream ss;
-        // ss << "pose out of bounds of terrain map: " << pose.translation().transpose();
-        // throw std::runtime_error(ss.str());
-        return std::nullopt;
-    }
+    if (neighborhood.rows() == 0 || neighborhood.cols() == 0) { return std::nullopt; }
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr neighborhood_cloud(new pcl::PointCloud<pcl::PointXYZ>);
     for (size_t i = 0; i < neighborhood.rows(); i++) {
@@ -98,7 +101,8 @@ std::optional<Eigen::Vector3d> TerrainParticleFilter::get_surface_normal(manif::
             if (neighborhood(i, j) > 0) {
                 Eigen::Vector2i idx = minCorner + Eigen::Vector2i(i, j);
                 Eigen::Vector2d position = idx_to_position(idx);
-                neighborhood_cloud->push_back(pcl::PointXYZ(position.x(), position.y(), neighborhood(i, j)));
+                neighborhood_cloud->push_back(
+                        pcl::PointXYZ(position.x(), position.y(), neighborhood(i, j)));
             }
         }
     }
@@ -106,35 +110,42 @@ std::optional<Eigen::Vector3d> TerrainParticleFilter::get_surface_normal(manif::
     float curvature;
     pcl::computePointNormal(*neighborhood_cloud, plane_parameters, curvature);
     Eigen::Vector3d normal(plane_parameters.x(), plane_parameters.y(), plane_parameters.z());
-    // std::cout << "Normal: " << normal.transpose() << std::endl;
 
     // DEBUG
-    neighborhood_cloud->width = neighborhood_cloud->size();
-    neighborhood_cloud->height = 1;
-    neighborhood_cloud->is_dense = true;
-    mNeighborhoodCloud = neighborhood_cloud;
-    mNeighborhood = mTerrainMap;
-    mNeighborhood.grid = Eigen::MatrixXd::Zero(mTerrainMap.grid.rows(), mTerrainMap.grid.cols());
-    mNeighborhood.grid.block(minCorner.x(), minCorner.y(),
-                             footprintCells.x(), footprintCells.y()) = neighborhood;
+    // neighborhood_cloud->width = neighborhood_cloud->size();
+    // neighborhood_cloud->height = 1;
+    // neighborhood_cloud->is_dense = true;
+    // mNeighborhoodCloud = neighborhood_cloud;
+    // mNeighborhood = mTerrainMap;
+    // mNeighborhood.grid = Eigen::MatrixXd::Zero(mTerrainMap.grid.rows(), mTerrainMap.grid.cols());
+    // mNeighborhood.grid.block(minCorner.x(), minCorner.y(),
+    //                          footprintCells.x(), footprintCells.y()) = neighborhood;
     return std::make_optional(normal);
 }
 
-void TerrainParticleFilter::update_pose_estimate(const std::vector<manif::SE2d>& particles, const std::vector<double>& weights) {
-    size_t maxIdx = std::distance(weights.begin(), std::max_element(weights.begin(), weights.end()));
+void TerrainParticleFilter::update_pose_estimate(const std::vector<manif::SE2d>& particles,
+                                                 const std::vector<double>& weights) {
+    size_t maxIdx =
+            std::distance(weights.begin(), std::max_element(weights.begin(), weights.end()));
     mPoseEstimate = particles[maxIdx];
 }
 
 void TerrainParticleFilter::predict(const Eigen::Vector3d& velCmd, double dt) {
+    auto t1 = std::chrono::high_resolution_clock::now();
     manif::SE2Tangentd increment;
     for (auto& particle: mParticles) {
         Eigen::Vector3d velNoise(mXDist(mRNG), 0, mThetaDist(mRNG));
         increment = (velCmd + velNoise) * dt;
         particle = particle.rplus(increment);
     }
+    auto t2 = std::chrono::high_resolution_clock::now();
+    double dt1 = std::chrono::duration<double>(t2 - t1).count();
+    std::cout << "Prediction time: " << dt1 << "s" << std::endl;
 }
 
-void TerrainParticleFilter::predict(const Eigen::Quaterniond& orientation, const Eigen::Vector3d& accel, const Eigen::Vector3d& gyro, double dt) {
+void TerrainParticleFilter::predict(const Eigen::Quaterniond& orientation,
+                                    const Eigen::Vector3d& accel, const Eigen::Vector3d& gyro,
+                                    double dt) {
     // TODO: track velocity to increase accuracy
     // remove gravity vector
     Eigen::Vector3d accelWorld = orientation * accel;
@@ -156,10 +167,13 @@ void TerrainParticleFilter::predict(const Eigen::Quaterniond& orientation, const
 }
 
 void TerrainParticleFilter::update(const Eigen::Quaterniond& orientation) {
+    auto t1 = std::chrono::high_resolution_clock::now();
+    auto t2 = std::chrono::high_resolution_clock::now();
     // compute weights
     Eigen::VectorXd weights(mParticles.size());
     for (size_t i = 0; i < mParticles.size(); i++) {
         std::optional<Eigen::Vector3d> maybe_normal = get_surface_normal(mParticles[i]);
+        t2 = std::chrono::high_resolution_clock::now();
         if (!maybe_normal) {
             weights[i] = 0;
             continue;
@@ -175,8 +189,21 @@ void TerrainParticleFilter::update(const Eigen::Quaterniond& orientation) {
         // TODO: is this necessary?
         rotation.col(2) = normal.normalized();
         Eigen::Quaterniond particle_orientation(rotation);
-        manif::SO3d particle_SO3(particle_orientation.normalized());
-        manif::SO3d true_SO3(orientation);
+        manif::SO3d particle_SO3;
+        manif::SO3d true_SO3;
+        try {
+            particle_SO3 = manif::SO3d(particle_orientation.normalized());
+            true_SO3 = manif::SO3d(orientation.normalized());
+        } catch (std::exception& e) {
+            std::cout << "particle: " << particle_orientation.w() << " " << particle_orientation.x()
+                      << " " << particle_orientation.y() << " " << particle_orientation.z()
+                      << std::endl;
+            std::cout << "true: " << orientation.w() << " " << orientation.x() << " "
+                      << orientation.y() << " " << orientation.z() << std::endl;
+            std::cout << "norm: " << orientation.norm() << " " << particle_orientation.norm()
+                      << std::endl;
+            throw e;
+        }
         manif::SO3Tangentd difference_tangent = particle_SO3.lminus(true_SO3);
         double weight = std::exp(-0.5 * difference_tangent.coeffs().squaredNorm());
         // std::cout << "Rotation: " << std::endl << rotation << std::endl;
@@ -185,6 +212,7 @@ void TerrainParticleFilter::update(const Eigen::Quaterniond& orientation) {
         // double weight = std::clamp(normal.dot(zAxis), 0.0, 1.0);
         weights[i] = weight;
     }
+    auto t3 = std::chrono::high_resolution_clock::now();
 
     // normalize weights and use them to update pose estimate
     weights.normalize();
@@ -199,14 +227,16 @@ void TerrainParticleFilter::update(const Eigen::Quaterniond& orientation) {
     }
 
     // add random noise to particles
-    for (auto& particle : newParticles) {
-        particle = particle.rplus(manif::SE2Tangentd(mResamplingXDist(mRNG), mResamplingXDist(mRNG), mResamplingThetaDist(mRNG)));
+    for (auto& particle: newParticles) {
+        particle = particle.rplus(manif::SE2Tangentd(mResamplingXDist(mRNG), mResamplingXDist(mRNG),
+                                                     mResamplingThetaDist(mRNG)));
     }
 
     // replace a percentage of the particles with random particles
     auto numRandomParticles = static_cast<size_t>(mParticles.size() * mRandomInjectionRate);
     Eigen::Vector2d minCorner = idx_to_position(Eigen::Vector2i(0, 0));
-    Eigen::Vector2d maxCorner = idx_to_position(Eigen::Vector2i(mTerrainMap.grid.cols() - 1, mTerrainMap.grid.rows() - 1));
+    Eigen::Vector2d maxCorner = idx_to_position(
+            Eigen::Vector2i(mTerrainMap.grid.cols() - 1, mTerrainMap.grid.rows() - 1));
     std::uniform_real_distribution<> xDist(minCorner.x(), maxCorner.x());
     std::uniform_real_distribution<> yDist(minCorner.y(), maxCorner.y());
     std::uniform_real_distribution<double> thetaDist(-M_PI, M_PI);
@@ -214,20 +244,24 @@ void TerrainParticleFilter::update(const Eigen::Quaterniond& orientation) {
         newParticles[i] = manif::SE2d(xDist(mRNG), yDist(mRNG), thetaDist(mRNG));
     }
     mParticles = newParticles;
+    auto t4 = std::chrono::high_resolution_clock::now();
+    double dt1 = std::chrono::duration<double>(t2 - t1).count();
+    double dt2 = std::chrono::duration<double>(t3 - t2).count();
+    double dt3 = std::chrono::duration<double>(t4 - t3).count();
+    double dt = std::chrono::duration<double>(t4 - t1).count();
+    std::cout << "update time: " << dt << "s" << std::endl;
+    std::cout << "\tnormal: " << dt1 << "s" << std::endl
+              << "\tweights: " << dt2 << "s" << std::endl
+              << "\tother: " << dt3 << "s" << std::endl
+              << std::endl;
 }
 
-const manif::SE2d& TerrainParticleFilter::get_pose_estimate() const {
-    return mPoseEstimate;
-}
+const manif::SE2d& TerrainParticleFilter::get_pose_estimate() const { return mPoseEstimate; }
 
-const std::vector<manif::SE2d>& TerrainParticleFilter::get_particles() const {
-    return mParticles;
-}
+const std::vector<manif::SE2d>& TerrainParticleFilter::get_particles() const { return mParticles; }
 
 // TODO: make it const
-const Eigen::MatrixXd& TerrainParticleFilter::get_terrain_grid() {
-    return mTerrainMap.grid;
-}
+const Eigen::MatrixXd& TerrainParticleFilter::get_terrain_grid() { return mTerrainMap.grid; }
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr TerrainParticleFilter::get_neighborhood() {
     return mNeighborhoodCloud;

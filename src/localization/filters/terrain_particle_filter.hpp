@@ -28,6 +28,7 @@ private:
     Eigen::Vector2d mFootprint;
     Eigen::Vector3d mVelocity;
     double mRandomInjectionRate;
+    // double mAverageT1, mAverageT2, mAverageT3;
 
     static TerrainMap load_terrain_map(const std::string& filename);
     void update_pose_estimate(const std::vector<manif::SE2d>& particles, const std::vector<double>& weights);
