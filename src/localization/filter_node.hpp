@@ -238,27 +238,23 @@ private:
     void publish_terrain() {
         if (!mInitialized) return;
         auto grid = mFilter.get_terrain_grid();
-        PointCloud::Ptr neighborhood = mFilter.get_neighborhood();
-        neighborhood->header.frame_id = "map";
-        pcl_conversions::toPCL(ros::Time::now(), neighborhood->header.stamp);
+        // PointCloud::Ptr neighborhood = mFilter.get_neighborhood();
+        // neighborhood->header.frame_id = "map";
+        // pcl_conversions::toPCL(ros::Time::now(), neighborhood->header.stamp);
 
-        mNeighborhoodPub.publish(*neighborhood);
+        // mNeighborhoodPub.publish(*neighborhood);
         // TODO: is pointer necessary? emplace_back?
         PointCloud::Ptr pclCloud(new PointCloud);
         for (size_t i = 0; i < grid.rows(); i++) {
             for (size_t j = 0; j < grid.cols(); j++) {
-                pcl::PointXYZ point;
                 Eigen::Vector2d pos = mFilter.idx_to_position(Eigen::Vector2i(i, j));
-                point.x = pos.x();
-                point.y = pos.y();
-                point.z = grid(i, j);
-                pclCloud->points.push_back(point);
+                pclCloud->points.push_back({pos.x(), pos.y(), grid(i, j)});
             }
         }
         pclCloud->header.frame_id = "map";
         pclCloud->width = pclCloud->points.size();
         pclCloud->height = 1;
-        pcl_conversions::toPCL(ros::Time::now(), pclCloud->header.stamp);
+        // pcl_conversions::toPCL(ros::Time::now(), pclCloud->header.stamp);
 
         mTerrainPub.publish(*pclCloud);
     }
